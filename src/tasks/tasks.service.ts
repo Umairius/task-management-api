@@ -5,6 +5,8 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TaskFilterDto } from './dto/task-filter.dto';
 import { Prisma } from '@prisma/client';
+import { diffTask, toDiffable } from '../activities/activity-diff.util';
+import { CurrentUserPayload } from '../activities/current-user.decorator';
 
 const TASK_INCLUDE = {
   assignee: true,
@@ -77,23 +79,38 @@ export class TasksService {
     return task;
   }
 
-  async create(createTaskDto: CreateTaskDto) {
-    const task = await this.prisma.task.create({
-      data: {
-        title: createTaskDto.title,
-        description: createTaskDto.description,
-        status: createTaskDto.status,
-        priority: createTaskDto.priority,
-        dueDate: createTaskDto.dueDate,
-        project: { connect: { id: createTaskDto.projectId } },
-        assignee: createTaskDto.assigneeId
-          ? { connect: { id: createTaskDto.assigneeId } }
-          : undefined,
-        tags: createTaskDto.tagIds
-          ? { connect: createTaskDto.tagIds.map(id => ({ id })) }
-          : undefined,
-      },
-      include: TASK_INCLUDE,
+  async create(createTaskDto: CreateTaskDto, actor: CurrentUserPayload) {
+    const task = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.task.create({
+        data: {
+          title: createTaskDto.title,
+          description: createTaskDto.description,
+          status: createTaskDto.status,
+          priority: createTaskDto.priority,
+          dueDate: createTaskDto.dueDate,
+          project: { connect: { id: createTaskDto.projectId } },
+          assignee: createTaskDto.assigneeId
+            ? { connect: { id: createTaskDto.assigneeId } }
+            : undefined,
+          tags: createTaskDto.tagIds
+            ? { connect: createTaskDto.tagIds.map(id => ({ id })) }
+            : undefined,
+        },
+        include: TASK_INCLUDE,
+      });
+
+      await tx.activity.create({
+        data: {
+          taskId: created.id,
+          taskTitle: created.title,
+          userId: actor.id,
+          userName: actor.name,
+          action: 'CREATE',
+          changes: diffTask(null, toDiffable(created)),
+        },
+      });
+
+      return created;
     });
 
     if (task.assignee) {
@@ -106,44 +123,95 @@ export class TasksService {
     return task;
   }
 
-  async update(id: string, updateTaskDto: UpdateTaskDto) {
-    const existingTask = await this.findOne(id);
+  async update(id: string, updateTaskDto: UpdateTaskDto, actor: CurrentUserPayload) {
+    const { before, after } = await this.prisma.$transaction(async (tx) => {
+      // Lock the row first so a concurrent update can't read the same
+      // "before" state we're about to read — without this, two updates
+      // racing each other could both diff against the same stale row.
+      await tx.$queryRaw`SELECT id FROM "Task" WHERE id = ${id} FOR UPDATE`;
 
-    const task = await this.prisma.task.update({
-      where: { id },
-      data: {
-        title: updateTaskDto.title,
-        description: updateTaskDto.description,
-        status: updateTaskDto.status,
-        priority: updateTaskDto.priority,
-        dueDate: updateTaskDto.dueDate,
-        assignee: updateTaskDto.assigneeId !== undefined
-          ? updateTaskDto.assigneeId
-            ? { connect: { id: updateTaskDto.assigneeId } }
-            : { disconnect: true }
-          : undefined,
-        tags: updateTaskDto.tagIds
-          ? { set: updateTaskDto.tagIds.map(id => ({ id })) }
-          : undefined,
-      },
-      include: TASK_INCLUDE,
+      const before = await tx.task.findUnique({
+        where: { id },
+        include: TASK_INCLUDE,
+      });
+
+      if (!before) {
+        throw new NotFoundException(`Task with ID ${id} not found`);
+      }
+
+      const after = await tx.task.update({
+        where: { id },
+        data: {
+          title: updateTaskDto.title,
+          description: updateTaskDto.description,
+          status: updateTaskDto.status,
+          priority: updateTaskDto.priority,
+          dueDate: updateTaskDto.dueDate,
+          assignee: updateTaskDto.assigneeId !== undefined
+            ? updateTaskDto.assigneeId
+              ? { connect: { id: updateTaskDto.assigneeId } }
+              : { disconnect: true }
+            : undefined,
+          tags: updateTaskDto.tagIds
+            ? { set: updateTaskDto.tagIds.map(id => ({ id })) }
+            : undefined,
+        },
+        include: TASK_INCLUDE,
+      });
+
+      const changes = diffTask(toDiffable(before), toDiffable(after));
+
+      if (Object.keys(changes).length > 0) {
+        await tx.activity.create({
+          data: {
+            taskId: after.id,
+            taskTitle: after.title,
+            userId: actor.id,
+            userName: actor.name,
+            action: 'UPDATE',
+            changes,
+          },
+        });
+      }
+
+      return { before, after };
     });
 
-    if (updateTaskDto.assigneeId && updateTaskDto.assigneeId !== existingTask.assigneeId) {
+    if (updateTaskDto.assigneeId && updateTaskDto.assigneeId !== before.assigneeId) {
       this.eventEmitter.emit('task.assigned', {
-        email: task.assignee!.email,
-        taskTitle: task.title,
+        email: after.assignee!.email,
+        taskTitle: after.title,
       });
     }
 
-    return task;
+    return after;
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, actor: CurrentUserPayload) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Task" WHERE id = ${id} FOR UPDATE`;
 
-    await this.prisma.task.delete({
-      where: { id },
+      const existing = await tx.task.findUnique({
+        where: { id },
+        include: TASK_INCLUDE,
+      });
+
+      if (!existing) {
+        throw new NotFoundException(`Task with ID ${id} not found`);
+      }
+
+      await tx.task.delete({ where: { id } });
+
+      await tx.activity.create({
+        data: {
+          taskId: existing.id,
+          taskTitle: existing.title,
+          userId: actor.id,
+          userName: actor.name,
+          action: 'DELETE',
+          changes: diffTask(toDiffable(existing), null),
+        },
+      });
     });
 
     return { message: 'Task deleted successfully' };
