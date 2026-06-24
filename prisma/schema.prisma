@@ -59,6 +59,22 @@ model Tag {
   tasks Task[]
 }
 
+model Activity {
+  id        String         @id @default(uuid())
+  taskId    String
+  taskTitle String
+  userId    String
+  userName  String
+  action    ActivityAction
+  changes   Json?
+  createdAt DateTime       @default(now())
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+}
+
 enum TaskStatus {
   TODO
   IN_PROGRESS
@@ -71,4 +87,10 @@ enum TaskPriority {
   MEDIUM
   HIGH
   URGENT
+}
+
+enum ActivityAction {
+  CREATE
+  UPDATE
+  DELETE
 }
