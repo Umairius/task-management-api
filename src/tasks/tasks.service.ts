@@ -50,7 +50,7 @@ export class TasksService {
         include: TASK_INCLUDE,
         skip: (page - 1) * perPage,
         take: perPage,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.task.count({ where }),
     ]);
