@@ -2,7 +2,20 @@ import { PrismaClient, TaskStatus, TaskPriority } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const SEED_COUNT = parseInt(process.env.SEED_COUNT ?? '100', 10);
+const SHOULD_RESET = process.argv.includes('--reset');
+
+if (SHOULD_RESET && process.env.NODE_ENV === 'production') {
+  throw new Error('--reset is blocked when NODE_ENV=production');
+}
+
 async function main() {
+  if (SHOULD_RESET) {
+    await prisma.$executeRawUnsafe(
+      'TRUNCATE TABLE "Task", "User", "Project", "Tag" RESTART IDENTITY CASCADE;',
+    );
+  }
+
   // Create users
   const users = await Promise.all([
     prisma.user.create({ data: { email: 'john@example.com', name: 'John Doe' } }),
@@ -29,7 +42,7 @@ async function main() {
   const statuses = Object.values(TaskStatus);
   const priorities = Object.values(TaskPriority);
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < SEED_COUNT; i++) {
     await prisma.task.create({
       data: {
         title: `Task ${i + 1}`,
