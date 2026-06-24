@@ -1,94 +1,73 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { EmailService } from '../email/email.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TaskFilterDto } from './dto/task-filter.dto';
-import { Task, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+
+const TASK_INCLUDE = {
+  assignee: true,
+  project: true,
+  tags: true,
+} satisfies Prisma.TaskInclude;
 
 @Injectable()
 export class TasksService {
   constructor(
     private prisma: PrismaService,
-    private emailService: EmailService,
+    private eventEmitter: EventEmitter2,
   ) {}
 
-  async findAll(filterDto: TaskFilterDto) {
-    const tasks = await this.prisma.task.findMany();
+  private buildWhere(filterDto: TaskFilterDto): Prisma.TaskWhereInput {
+    const where: Prisma.TaskWhereInput = {};
 
-    const tasksWithRelations = await Promise.all(
-      tasks.map(async (task) => {
-        const assignee = task.assigneeId
-          ? await this.prisma.user.findUnique({ where: { id: task.assigneeId } })
-          : null;
-
-        const project = await this.prisma.project.findUnique({
-          where: { id: task.projectId }
-        });
-
-        const tags = await this.prisma.tag.findMany({
-          where: {
-            tasks: {
-              some: { id: task.id }
-            }
-          }
-        });
-
-        return {
-          ...task,
-          assignee,
-          project,
-          tags,
-        };
-      })
-    );
-
-    let filteredTasks = tasksWithRelations;
-
-    if (filterDto.status) {
-      filteredTasks = filteredTasks.filter(task => task.status === filterDto.status);
-    }
-
-    if (filterDto.priority) {
-      filteredTasks = filteredTasks.filter(task => task.priority === filterDto.priority);
-    }
-
-    if (filterDto.assigneeId) {
-      filteredTasks = filteredTasks.filter(task => task.assigneeId === filterDto.assigneeId);
-    }
-
-    if (filterDto.projectId) {
-      filteredTasks = filteredTasks.filter(task => task.projectId === filterDto.projectId);
-    }
+    if (filterDto.status) where.status = filterDto.status;
+    if (filterDto.priority) where.priority = filterDto.priority;
+    if (filterDto.assigneeId) where.assigneeId = filterDto.assigneeId;
+    if (filterDto.projectId) where.projectId = filterDto.projectId;
 
     if (filterDto.dueDateFrom || filterDto.dueDateTo) {
-      filteredTasks = filteredTasks.filter(task => {
-        if (!task.dueDate) return false;
-        const dueDate = new Date(task.dueDate);
-
-        if (filterDto.dueDateFrom && dueDate < new Date(filterDto.dueDateFrom)) {
-          return false;
-        }
-
-        if (filterDto.dueDateTo && dueDate > new Date(filterDto.dueDateTo)) {
-          return false;
-        }
-
-        return true;
-      });
+      where.dueDate = {
+        ...(filterDto.dueDateFrom && { gte: new Date(filterDto.dueDateFrom) }),
+        ...(filterDto.dueDateTo && { lte: new Date(filterDto.dueDateTo) }),
+      };
     }
 
-    return filteredTasks;
+    return where;
+  }
+
+  async findAll(filterDto: TaskFilterDto) {
+    const page = filterDto.page ?? 1;
+    const perPage = filterDto.perPage ?? 20;
+    const where = this.buildWhere(filterDto);
+
+    const [data, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        include: TASK_INCLUDE,
+        skip: (page - 1) * perPage,
+        take: perPage,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        page,
+        perPage,
+        total,
+        totalPages: Math.ceil(total / perPage),
+      },
+    };
   }
 
   async findOne(id: string) {
     const task = await this.prisma.task.findUnique({
       where: { id },
-      include: {
-        assignee: true,
-        project: true,
-        tags: true,
-      },
+      include: TASK_INCLUDE,
     });
 
     if (!task) {
@@ -114,18 +93,14 @@ export class TasksService {
           ? { connect: createTaskDto.tagIds.map(id => ({ id })) }
           : undefined,
       },
-      include: {
-        assignee: true,
-        project: true,
-        tags: true,
-      },
+      include: TASK_INCLUDE,
     });
 
     if (task.assignee) {
-      await this.emailService.sendTaskAssignmentNotification(
-        task.assignee.email,
-        task.title
-      );
+      this.eventEmitter.emit('task.assigned', {
+        email: task.assignee.email,
+        taskTitle: task.title,
+      });
     }
 
     return task;
@@ -151,18 +126,14 @@ export class TasksService {
           ? { set: updateTaskDto.tagIds.map(id => ({ id })) }
           : undefined,
       },
-      include: {
-        assignee: true,
-        project: true,
-        tags: true,
-      },
+      include: TASK_INCLUDE,
     });
 
     if (updateTaskDto.assigneeId && updateTaskDto.assigneeId !== existingTask.assigneeId) {
-      await this.emailService.sendTaskAssignmentNotification(
-        task.assignee!.email,
-        task.title
-      );
+      this.eventEmitter.emit('task.assigned', {
+        email: task.assignee!.email,
+        taskTitle: task.title,
+      });
     }
 
     return task;

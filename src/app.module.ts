@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CacheModule } from '@nestjs/cache-manager';
 import { PrismaModule } from './prisma/prisma.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -13,6 +14,7 @@ import { redisStore } from 'cache-manager-redis-yet';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    EventEmitterModule.forRoot(),
     CacheModule.registerAsync({
       isGlobal: true,
       imports: [ConfigModule],
@@ -22,7 +24,7 @@ import { redisStore } from 'cache-manager-redis-yet';
         return {
           store: await redisStore({
             url: url,
-            socket: {
+          socket: {
               tls: url?.startsWith('rediss://') ? true : false,
               rejectUnauthorized: false,
             },

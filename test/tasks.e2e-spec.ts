@@ -28,14 +28,20 @@ describe('TasksController (e2e)', () => {
       .get('/tasks')
       .expect(200);
 
-    expect(response.body).toBeInstanceOf(Array);
-    expect(response.body.length).toBeGreaterThan(0);
+    expect(response.body).toHaveProperty('data');
+    expect(response.body).toHaveProperty('meta');
+    expect(response.body.data).toBeInstanceOf(Array);
+    expect(response.body.data.length).toBeGreaterThan(0);
 
-    response.body.forEach(task => {
+    response.body.data.forEach(task => {
       expect(task).toHaveProperty('assignee');
       expect(task).toHaveProperty('project');
       expect(task).toHaveProperty('tags');
     });
-  });
 
+    expect(response.body.meta).toMatchObject({
+      page: 1,
+      perPage: 20,
+    });
+  });
 });
