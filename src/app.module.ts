@@ -7,6 +7,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { ProjectsModule } from './projects/projects.module';
 import { UsersModule } from './users/users.module';
 import { EmailModule } from './email/email.module';
+import { ActivitiesModule } from './activities/activities.module';
 import { redisStore } from 'cache-manager-redis-yet';
 
 @Module({
@@ -38,6 +39,7 @@ import { redisStore } from 'cache-manager-redis-yet';
     ProjectsModule,
     UsersModule,
     EmailModule,
+    ActivitiesModule,
   ],
 })
 export class AppModule {}
