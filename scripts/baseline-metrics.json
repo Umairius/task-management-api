@@ -1,0 +1,10 @@
+[
+  {"combo":"no_filter","count":300,"errors":0,"p50_ms":400.11,"p95_ms":568.31,"p99_ms":633.0,"max_ms":808.86},
+  {"combo":"status_only","count":300,"errors":0,"p50_ms":457.13,"p95_ms":531.42,"p99_ms":654.21,"max_ms":1057.48},
+  {"combo":"date_range_only","count":300,"errors":0,"p50_ms":386.0,"p95_ms":553.14,"p99_ms":618.31,"max_ms":635.92},
+  {"combo":"status_and_date_range","count":300,"errors":0,"p50_ms":407.74,"p95_ms":567.45,"p99_ms":661.86,"max_ms":810.99},
+  {"combo":"assignee_only","count":300,"errors":0,"p50_ms":375.89,"p95_ms":522.11,"p99_ms":606.0,"max_ms":787.53},
+  {"combo":"status_and_assignee","count":300,"errors":0,"p50_ms":461.98,"p95_ms":655.9,"p99_ms":664.15,"max_ms":1172.44},
+  {"combo":"date_range_and_assignee","count":300,"errors":0,"p50_ms":427.2,"p95_ms":596.52,"p99_ms":728.87,"max_ms":772.04},
+  {"combo":"all_filters","count":300,"errors":0,"p50_ms":386.67,"p95_ms":432.86,"p99_ms":749.35,"max_ms":756.01}
+]

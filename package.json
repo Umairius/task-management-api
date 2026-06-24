@@ -20,7 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "perf:check": "python3 scripts/load_test.py --baseline scripts/baseline-metrics.json --fail-on-regression"
   },
   "dependencies": {
     "@nestjs/cache-manager": "^2.1.0",
